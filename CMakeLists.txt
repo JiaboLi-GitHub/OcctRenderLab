@@ -61,3 +61,4 @@ target_compile_options(ocrl_core PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 
 enable_testing()
 add_subdirectory(tests)
+add_subdirectory(apps/contour_viewer)
