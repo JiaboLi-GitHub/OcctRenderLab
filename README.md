@@ -1,133 +1,140 @@
 # OcctRenderLab
 
-研究 OCCT(Open CASCADE Technology)与渲染相关题目的独立实验室。
-**第一个题目:模型外轮廓(精确 HLR)+ VSG 渲染。**
+研究 OCCT(Open CASCADE Technology)与渲染相关题目的实验室。
+**第一个题目:模型外轮廓(精确投影剪影)+ VSG 渲染。**
 
-给定一个 STEP 模型和一个投影方向,用 OCCT 的隐藏线消除(HLR)精确算出模型沿该方向投影的
-**剪影外轮廓**(最外层闭环 + 内孔),并在 VulkanSceneGraph(VSG)视图里把实体与轮廓一起显示,
-可交互切换投影方向。等价于 **Fusion 360「2D 轮廓加工」** 选实体时所用的那种外形轮廓。
+仓库分成**两个可独立编译的项目**:
 
-## 与其他项目的关系(只复用,不修改)
+- **`contour/`** —— 外轮廓**算法库**(`occtcontour`),**只依赖 OCCT**,可独立编译、安装,被其他项目
+  通过 `find_package(occtcontour)` 或 `add_subdirectory(contour)` 单独使用。
+- **`render/`** —— VSG 可视化(`contour_viewer`),依赖 `contour` + vsg + vsgocct。
 
-- **`D:\OCCT`** —— OCCT 8.0.0 构建树(`D:\OCCT\build`,Debug)。本项目链接其 `TKHLR` 等工具包。
-- **`D:\vsgOcct`** —— VSG+OCCT 桥接库。本项目通过 `add_subdirectory(D:/vsgOcct/src)` 复用其
-  `cad::readStep`(STEP 读取)与 `scene::buildAssemblyScene`(实体场景),**不改动其源码**。
+给定一个 STEP 模型和投影方向,用 OCCT 精确算出模型沿该方向投影的**剪影外轮廓**(最外闭环 + 内孔),
+等价于 **Fusion 360「2D 轮廓加工」** 选实体时的那种外形轮廓。
+
+## 项目结构
+
+```
+OcctRenderLab/                      ← 仓库根 = 超级构建(super-build)
+├─ CMakeLists.txt                   add_subdirectory(contour) [+ render]
+├─ contour/                         ① 算法库(纯 OCCT)
+│  ├─ include/occtcontour/{OuterContour.h, ModelLoad.h}
+│  ├─ src/{OuterContour.cpp, ModelLoad.cpp}
+│  ├─ apps/{contour_sweep, contour_svg}   纯 OCCT 工具
+│  ├─ tests/(+ tests/data 样本)
+│  ├─ examples/consumer_smoke/             find_package 最小消费示例
+│  └─ cmake/occtcontourConfig.cmake.in
+└─ render/                          ② 渲染(依赖 ① + vsg + vsgocct)
+   ├─ include/ocrlrender/OutlineRender.h
+   ├─ src/OutlineRender.cpp
+   └─ apps/contour_viewer/main.cpp
+```
+
+依赖:`contour` ← `render`。算法库 C++ 命名空间 `ocrl`,头文件 `<occtcontour/...>`。
 
 ## 方法(精确 B-rep 投影阴影区域并集)
 
 ```
-STEP ─readStep(复用)─► 装配树 ─拍平─► TopoDS_Compound
-                                          ├─ buildAssemblyScene(复用) ─► VSG 实体
-                                          └─ computeOuterContour(本项目)
+STEP ─loadCompound(STEPControl_Reader)──► TopoDS_Compound
+                                          ├─ buildAssemblyScene(vsgocct,渲染侧) ─► VSG 实体
+                                          └─ computeOuterContour(算法侧,纯 OCCT)
                                                HLRBRep_Algo 正交投影 → 可见+隐藏的 剪影+锐边(2D@Z=0)
                                                → BRepLib::BuildCurves3d 补 3D 曲线
-                                               → 在视平面造 base 矩形面,用这些边 Splitter 切成子面
+                                               → 视平面 base 面用这些边 Splitter 切子面
                                                → 逐子面取内部点、沿视向投射线 IntCurvesFace 判是否击中实体
                                                  (穿过通孔的线不命中 ⇒ 自动成为内孔)
-                                               → Fuse 所有「阴影」子面 + UnifySameDomain
+                                               → Fuse 阴影子面 + UnifySameDomain
                                                → BRepTools::OuterWire 取外环、其余为内孔
                                                → BRepTools_WireExplorer 按连通顺序离散
                                           ─► VSG 线节点(反向 Z 管线)
 ```
 
-为什么不用「HLR 边直接拼环」:复杂/带圆角件投影出的边不是一条连续闭链(圆角产生
-剪影边+锐边双线、护手处分叉),`ConnectEdgesToWires`+取最大面积会把外轮廓**拆裂**、
-把刀身这类大段**误判成内孔**。改用「把视平面切成子面 → 射线判定每片是否在实体阴影内 →
-并集」是拓扑稳健的精确解:球/圆角/凹形/通孔都正确,且天然只产生**一条完整外环**。
-回归测试 `test_knife_outer_complete` 专门守护这一点(外环须横跨整把刀 198mm,而非片段)。
+为什么不用「HLR 边直接拼环」:复杂/带圆角件投影出的边不是连续闭链(圆角双线、形状突变处分叉),
+`ConnectEdgesToWires`+取最大面积会把外轮廓**拆裂**、把刀身这类大段**误判成内孔**。改用「视平面切子面 →
+射线判定每片是否在实体阴影内 → 并集」是拓扑稳健的精确解:球/圆角/凹形/通孔都正确,只产生**一条完整外环**。
+回归测试 `test_knife_outer_complete` 守护这一点(外环须横跨整把刀 198mm)。
 
 ## 构建
 
-> **必须用 `Visual Studio 18 2026` 生成器(MSVC 14.50.35717)**,与 vsg / vsgOcct 一致。
-> 用 VS2022(14.44)会在链接 vsg 着色器编译器(glslang/SPIRV-Tools)时报 `__std_*` 未解析符号
-> —— 那是 14.44 的 STL 缺少新版向量化算法符号所致。
+> **必须用 `Visual Studio 18 2026` 生成器(MSVC 14.50.35717)**,与 vsg/vsgOcct 一致。
+> 用 VS2022(14.44)链接 vsg 着色器编译器(glslang/SPIRV-Tools)会报 `__std_*` 未解析符号
+> —— 14.44 的 STL 缺新版向量化算法符号。(只编算法库时不涉及 vsg,VS2022 亦可。)
 
+**完整(算法+渲染)**:
 ```powershell
 cmake -S D:/OcctRenderLab -B D:/OcctRenderLab/build -G "Visual Studio 18 2026" -A x64
 cmake --build D:/OcctRenderLab/build --config Debug
 ```
 
-依赖:OCCT 构建树在 `D:/OCCT/build`,vsg 在 `C:/Program Files (x86)/vsg`,vsgOcct 在 `D:/vsgOcct`。
-顶层 CMake 已强制单一 Debug 配置(OCCT/Vulkan 只提供 Debug 产物),并自动把运行期 DLL 拷到 exe 旁。
+**只编算法库**(不碰 vsg/vsgocct):
+```powershell
+cmake -S D:/OcctRenderLab -B build_algo -G "Visual Studio 18 2026" -A x64 -DOCRL_BUILD_RENDER=OFF
+cmake --build build_algo --config Debug
+```
+
+依赖:OCCT 构建树 `D:/OCCT/build`;vsg `C:/Program Files (x86)/vsg`;vsgOcct `D:/vsgOcct`。
+各 CMake 已强制单一 Debug 配置(OCCT/Vulkan 只提供 Debug),并自动把运行期 DLL 拷到 exe 旁。
+
+## 在其他项目中单独使用算法
+
+**方式一:install + find_package**
+```powershell
+cmake --install build_algo --config Debug --prefix <prefix>
+```
+```cmake
+find_package(occtcontour REQUIRED)        # 消费方 CMake;-DCMAKE_PREFIX_PATH=<prefix>
+target_link_libraries(myapp PRIVATE occtcontour::occtcontour)
+```
+**方式二:源码引入**
+```cmake
+add_subdirectory(<path>/OcctRenderLab/contour)
+target_link_libraries(myapp PRIVATE occtcontour::occtcontour)
+```
+用法(见 `contour/examples/consumer_smoke/main.cpp`):
+```cpp
+#include <occtcontour/ModelLoad.h>
+#include <occtcontour/OuterContour.h>
+auto shape = ocrl::loadCompound("model.step");
+ocrl::ContourOptions o; o.direction = gp_Dir(0,0,1);
+ocrl::ContourResult r = ocrl::computeOuterContour(shape, o);  // r.outerWire / r.holeWires / r.outerPolyline / r.area
+```
 
 ## 可执行体
 
-### 1. `contour_viewer` —— 计算 + 渲染 demo
+> VS 生成器输出在子目录:`build/contour/Debug/`(算法工具/测试)、`build/render/Debug/`(viewer)。
 
+### contour_viewer(渲染侧)
 ```powershell
-build\apps\contour_viewer\Debug\contour_viewer.exe <model.step> [dx dy dz] [--frames N] [--cycle] [--loops all|outer|inner]
-# 例:
-build\apps\contour_viewer\Debug\contour_viewer.exe D:\model\12\柱体.step
-build\apps\contour_viewer\Debug\contour_viewer.exe D:\model\12\柱体.step 1 0 0   # 侧视
-build\apps\contour_viewer\Debug\contour_viewer.exe D:\model\12\齿轮.stp --loops outer  # 只看外回路
+build\render\Debug\contour_viewer.exe <model.step> [dx dy dz] [--frames N] [--cycle] [--loops all|outer|inner]
+```
+键位:`1`-`6`/`0` 视向、`7`/`8`/`9` 全部/外/内回路、`F`/`C` 显隐实体/轮廓、`M` 投影面↔原位、鼠标轨道、`Esc` 退出。
+
+### contour_sweep / contour_svg(算法侧,纯 OCCT)
+```powershell
+build\contour\Debug\contour_sweep.exe [目录]                 # 批量算外轮廓,记录 ok/fail+耗时
+build\contour\Debug\contour_svg.exe <model.step> [dx dy dz] [--defl v] -o out.svg   # 导出轮廓 SVG
 ```
 
-- 可选 `dx dy dz`:初始投影方向(默认 `0 0 1` 顶视)。
-- `--frames N`:渲染 N 帧后退出(自动化验证用,不阻塞)。
-- `--cycle`:运行中自动切几次方向与回路模式,验证运行时重算/重建路径。
-- `--loops all|outer|inner`:初始回路显示模式(默认 `all`),对应 Fusion 360 轮廓对话框的「回路」选项。
-
-键位:
-
-| 键 | 作用 |
-|---|---|
-| `1` `2` `3` `4` `5` `6` | 顶 / 底 / 前 / 后 / 左 / 右 视向(切向即重算轮廓) |
-| `0` | 等轴测方向 |
-| `7` `8` `9` | 回路显示:全部 / 仅外回路 / 仅内回路(孔)(纯显示筛选,不重算) |
-| `F` | 显隐实体 |
-| `C` | 显隐轮廓 |
-| `M` | 切换「投影平面」/「原位」显示模式 |
-| 鼠标 | trackball 轨道视角 |
-| `Esc` | 退出 |
-
-外轮廓为亮黄色,内孔为青色;切换投影方向时控制台打印 `recompute: ok/loops/area`。
-
-### 2. `contour_sweep` —— 鲁棒性扫描
-
+### 测试
 ```powershell
-build\apps\contour_sweep\Debug\contour_sweep.exe [目录]   # 默认 D:/model/12
+ctest --test-dir build -C Debug --output-on-failure
 ```
-
-遍历目录下所有 `.step`/`.stp`,逐个算外轮廓,打印 `[OK 耗时] loops/area 文件名` 或失败原因,
-末尾给出合计。异常被捕获,进程恒以 0 退出。
-
-### 3. `contour_tests` —— 解析验证
-
-```powershell
-ctest --test-dir D:/OcctRenderLab/build -C Debug --output-on-failure
-```
-
-用自包含断言验证基本体(测试模型在 `tests/data/`,从 `D:\model\12` 复制为 ASCII 名):
-- **柱体**:顶视外轮廓面积 = 4π(精确);侧视 = 4×10 矩形(aspect 2.5)。
-- **球体**:任意视向 = 圆(面积/包围盒 ≈ π/4,无直边)。
-- **薄板 / 长条**:严谨不变量 —— 轮廓 2D 外接框 == 实体投影 3D 外接框(板 100×99.5,条 26×113)。
 
 ## 验证结果
 
-- `contour_tests`:全部通过(柱体顶视面积 12.5664 = 4π 精确)。
-- `contour_sweep`:`D:/model/12`(23)+ `MyExamples`(11)共 **34/34 成功,0 崩溃**,耗时 6–757ms。
-- `contour_viewer --frames`:GPU 管线(着色器编译 + 提交 + 呈现)跑通;`--cycle` 验证运行时重算无崩溃。
+- `contour_tests`:全过(柱体顶视 4π;球体 π/4;薄板/长条/骷髅匕首 外环横跨实体投影框)。
+- `contour_sweep`:`D:/model/12`(23)+ `MyExamples`(11)共 **34/34** 成功、0 崩溃。
+- 算法库**零 vsg**:`-DOCRL_BUILD_RENDER=OFF` 构建不查找 vsg/Qt,产物旁无 vsg DLL。
+- `find_package(occtcontour)` 外部消费:`consumer_smoke` 编译运行 `ok=1`。
+- `contour_viewer --frames`:GPU 管线跑通;`--cycle` 运行时切向/切回路无崩溃。
 
 ## 已知限制 / 后续
 
-- 「原位 / 投影平面」两种显示当前用 `depth` 偏移近似;严格 3D 原位剪影可用
-  `OutLineVCompound3d()` / `CompoundOfEdges(type,true,/*In3d=*/true)`。
-- 多体(多个分离实体)目前只返回**面积最大那块**的外环;完整的「每块各取外环」待扩展。
-- 区域并集算法精确但较重:子面越多越慢,复杂件(如齿轮)Debug 下约 7s(精度优先;
-  仅构建了 Debug 配置,Release 会快很多)。
-- 交互窗口需要桌面会话;从非交互 shell 启动可能立即退出(用 `--frames` 做无人值守验证)。
+- 「原位 / 投影平面」两种显示当前用 `depth` 偏移近似;严格 3D 原位剪影可用 `OutLineVCompound3d()`。
+- 多体目前只返回面积最大那块的外环;「每块各取外环」待扩展。
+- 区域并集精确但较重:子面越多越慢,复杂件(齿轮)Debug 下约 7s(精度优先;仅 Debug 配置)。
+- 交互窗口需要桌面会话;非交互 shell 启动可能立即退出(用 `--frames` 无人值守验证)。
 - 已可导出 SVG(`contour_svg`);DXF/STEP 导出尚未实现。
-
-## 目录
-
-```
-src/ModelLoad.{h,cpp}              读 STEP + 拍平装配为 TopoDS_Compound
-src/OuterContour.{h,cpp}           核心:HLR → 拼环 → 选最外环 → 度量
-apps/contour_viewer/               VSG 显示 demo(OutlineRender 线管线 + main)
-apps/contour_sweep/                鲁棒性扫描
-tests/                             解析验证 + tests/data 样本
-docs/specs, docs/plans             设计文档与实现计划
-```
 
 ## License
 
