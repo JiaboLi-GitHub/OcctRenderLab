@@ -15,19 +15,32 @@
 
 namespace {
 
-// 由外轮廓结果构建轮廓子树(外环亮黄 + 孔青色),摆到沿视向 depth 处。
-vsg::ref_ptr<vsg::Node> buildContourNodes(const ocrl::ContourResult& r, double depth)
+// 回路显示模式:全部 / 仅外回路 / 仅内回路(孔)。
+enum class LoopMode { All, Outer, Inner };
+const char* loopName(LoopMode m) { return m == LoopMode::All ? "All" : (m == LoopMode::Outer ? "Outer" : "Inner"); }
+LoopMode parseLoopMode(const std::string& s) {
+    if (s == "outer") return LoopMode::Outer;
+    if (s == "inner") return LoopMode::Inner;
+    return LoopMode::All;
+}
+
+// 按模式构建轮廓子树(外环亮黄、内孔青色),摆到沿视向 depth 处。纯显示筛选,不重算几何。
+vsg::ref_ptr<vsg::Node> buildContourNodes(const ocrl::ContourResult& r, double depth, LoopMode mode)
 {
     auto g = vsg::Group::create();
     if (!r.ok) return g;
-    std::vector<ocrl::Polyline> outer{ r.outerPolyline };
-    g->addChild(ocrl::buildOutlineNode(r.viewSystem, outer, vsg::vec3(1.0f, 0.9f, 0.1f), depth));
-    if (!r.holePolylines.empty())
+    if (mode != LoopMode::Inner) {  // All 或 Outer -> 画外环
+        std::vector<ocrl::Polyline> outer{ r.outerPolyline };
+        g->addChild(ocrl::buildOutlineNode(r.viewSystem, outer, vsg::vec3(1.0f, 0.9f, 0.1f), depth));
+    }
+    if (mode != LoopMode::Outer && !r.holePolylines.empty()) {  // All 或 Inner -> 画内孔
         g->addChild(ocrl::buildOutlineNode(r.viewSystem, r.holePolylines, vsg::vec3(0.2f, 0.7f, 1.0f), depth));
+    }
     return g;
 }
 
-// 键盘:1-6/0 切投影方向并运行时重算;F 切实体、C 切轮廓、M 切原位/投影平面。
+// 键盘:1-6/0 切投影方向(重算 HLR);7/8/9 切 全部/外/内 回路(仅重建显示);
+//      F 切实体、C 切轮廓、M 切原位/投影平面。
 class ContourKeyHandler : public vsg::Inherit<vsg::Visitor, ContourKeyHandler>
 {
 public:
@@ -38,7 +51,20 @@ public:
     TopoDS_Compound compound;
     double radius = 1.0;
 
-    void setDirection(const gp_Dir& d) { m_dir = d; recompute(); }
+    // 用 main 已算好的初始结果与模式播种,避免启动时重复计算。
+    void seed(const ocrl::ContourResult& r, LoopMode loop) { m_result = r; m_loop = loop; }
+
+    void setDirection(const gp_Dir& d)  // 几何变了 -> 重算 HLR
+    {
+        m_dir = d;
+        ocrl::ContourOptions o; o.direction = m_dir;
+        m_result = ocrl::computeOuterContour(compound, o);
+        std::printf("recompute: ok=%d loops=%zu area=%.3f msg=%s\n",
+                    m_result.ok, m_result.loopCount, m_result.area, m_result.message.c_str());
+        rebuild();
+    }
+    void setLoopMode(LoopMode m) { m_loop = m; std::printf("loops: %s\n", loopName(m)); rebuild(); } // 仅显示筛选
+    void toggleFlatten() { m_flatten = !m_flatten; rebuild(); }  // 摆放参数,无需重算
 
     void apply(vsg::KeyPressEvent& key) override
     {
@@ -50,29 +76,27 @@ public:
             case vsg::KEY_5: setDirection(gp_Dir(-1, 0, 0)); break; // 左
             case vsg::KEY_6: setDirection(gp_Dir(1, 0, 0));  break; // 右
             case vsg::KEY_0: setDirection(gp_Dir(1, 1, 1));  break; // 等轴测
+            case vsg::KEY_7: setLoopMode(LoopMode::All);   break;   // 全部回路
+            case vsg::KEY_8: setLoopMode(LoopMode::Outer); break;   // 仅外回路
+            case vsg::KEY_9: setLoopMode(LoopMode::Inner); break;   // 仅内回路
             case vsg::KEY_f: if (solidSwitch)   { m_solid = !m_solid;     solidSwitch->setAllChildren(m_solid); } break;
             case vsg::KEY_c: if (contourSwitch) { m_contour = !m_contour; contourSwitch->setAllChildren(m_contour); } break;
-            case vsg::KEY_m: m_flatten = !m_flatten; recompute(); break;
+            case vsg::KEY_m: toggleFlatten(); break;
             default: break;
         }
     }
 
 private:
     gp_Dir m_dir{0, 0, 1};
+    LoopMode m_loop = LoopMode::All;
+    ocrl::ContourResult m_result;
     bool m_solid = true, m_contour = true, m_flatten = true;
 
-    void recompute()
+    void rebuild()
     {
-        ocrl::ContourOptions o; o.direction = m_dir;
-        ocrl::ContourResult r = ocrl::computeOuterContour(compound, o);
-        std::printf("recompute: ok=%d loops=%zu area=%.3f msg=%s\n",
-                    r.ok, r.loopCount, r.area, r.message.c_str());
-
         const double depth = m_flatten ? -radius * 1.2 : 0.0;
         contourGroup->children.clear();
-        contourGroup->addChild(buildContourNodes(r, depth));
-
-        // 运行时编译新增几何并并入 viewer(vsgExamples dynamicload 范式)
+        contourGroup->addChild(buildContourNodes(m_result, depth, m_loop));
         if (auto v = viewer.ref_ptr()) {
             auto cr = v->compileManager->compile(contourGroup);
             vsg::updateViewer(*v, cr);
@@ -84,16 +108,21 @@ private:
 
 int main(int argc, char** argv)
 {
-    if (argc < 2) { std::printf("usage: contour_viewer <model.step> [dx dy dz] [--frames N] [--cycle]\n"); return 1; }
+    if (argc < 2) {
+        std::printf("usage: contour_viewer <model.step> [dx dy dz] [--frames N] [--cycle] [--loops all|outer|inner]\n");
+        return 1;
+    }
     const std::filesystem::path path = argv[1];
     gp_Dir dir(0, 0, 1);
-    int maxFrames = 0;     // 0 = 交互;>0 = 渲染 N 帧退出(自动验证)
-    bool cycle = false;    // 自动验证:运行中切几次方向,触发运行时重算路径
+    int maxFrames = 0;
+    bool cycle = false;
+    LoopMode loopMode = LoopMode::All;
     std::vector<std::string> dirArgs;
     for (int i = 2; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--frames" && i + 1 < argc) maxFrames = std::stoi(argv[++i]);
         else if (a == "--cycle") cycle = true;
+        else if (a == "--loops" && i + 1 < argc) loopMode = parseLoopMode(argv[++i]);
         else dirArgs.push_back(a);
     }
     if (dirArgs.size() >= 3)
@@ -111,22 +140,21 @@ int main(int argc, char** argv)
     auto t2 = clock::now();
 
     auto ms = [](auto a, auto b){ return std::chrono::duration_cast<std::chrono::milliseconds>(b-a).count(); };
-    std::printf("read+scene %lldms; contour %lldms; ok=%d loops=%zu area=%.3f msg=%s\n",
+    std::printf("read+scene %lldms; contour %lldms; ok=%d loops=%zu area=%.3f loopmode=%s msg=%s\n",
                 (long long)ms(t0,t1), (long long)ms(t1,t2), contour.ok,
-                contour.loopCount, contour.area, contour.message.c_str());
-    std::printf("keys: 1-6/0=projection dir, F=solid, C=contour, M=flatten/in-place, Esc=quit\n");
+                contour.loopCount, contour.area, loopName(loopMode), contour.message.c_str());
+    std::printf("keys: 1-6/0=projection dir, 7/8/9=loops all/outer/inner, F=solid, C=contour, M=flatten, Esc=quit\n");
 
     double radius = sceneData.radius > 0 ? sceneData.radius : 1.0;
     const double depth0 = -radius * 1.2;
 
-    // 场景图:solidSwitch(实体) + contourSwitch(contourGroup -> 轮廓)
     auto root = vsg::Group::create();
     auto solidSwitch = vsg::Switch::create();
     if (sceneData.scene) solidSwitch->addChild(true, sceneData.scene);
     root->addChild(solidSwitch);
 
     auto contourGroup = vsg::Group::create();
-    contourGroup->addChild(buildContourNodes(contour, depth0));
+    contourGroup->addChild(buildContourNodes(contour, depth0, loopMode));
     auto contourSwitch = vsg::Switch::create();
     contourSwitch->addChild(true, contourGroup);
     root->addChild(contourSwitch);
@@ -150,6 +178,7 @@ int main(int argc, char** argv)
     keyHandler->contourSwitch = contourSwitch;
     keyHandler->compound = compound;
     keyHandler->radius = radius;
+    keyHandler->seed(contour, loopMode);
 
     auto trackball = vsg::Trackball::create(camera);
     trackball->addWindow(window);
@@ -160,7 +189,7 @@ int main(int argc, char** argv)
     auto cg = vsg::createCommandGraphForView(window, camera, root);
     viewer->assignRecordAndSubmitTaskAndPresentation({cg});
     viewer->compile();
-    keyHandler->viewer = viewer;  // compileManager 此时已就绪
+    keyHandler->viewer = viewer;
 
     int frame = 0;
     while (viewer->advanceToNextFrame()) {
@@ -169,9 +198,10 @@ int main(int argc, char** argv)
         viewer->recordAndSubmit();
         viewer->present();
         ++frame;
-        // 自动验证:在运行中切换投影方向,触发 compileManager->compile + updateViewer
         if (cycle && frame == 3) keyHandler->setDirection(gp_Dir(1, 0, 0));
-        if (cycle && frame == 6) keyHandler->setDirection(gp_Dir(0, 0, 1));
+        if (cycle && frame == 6) keyHandler->setLoopMode(LoopMode::Outer);
+        if (cycle && frame == 9) keyHandler->setLoopMode(LoopMode::Inner);
+        if (cycle && frame == 12) keyHandler->setLoopMode(LoopMode::All);
         if (maxFrames > 0 && frame >= maxFrames) {
             std::printf("rendered %d frames, exiting (--frames mode)\n", frame);
             break;

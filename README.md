@@ -50,15 +50,17 @@ cmake --build D:/OcctRenderLab/build --config Debug
 ### 1. `contour_viewer` —— 计算 + 渲染 demo
 
 ```powershell
-build\apps\contour_viewer\Debug\contour_viewer.exe <model.step> [dx dy dz] [--frames N] [--cycle]
+build\apps\contour_viewer\Debug\contour_viewer.exe <model.step> [dx dy dz] [--frames N] [--cycle] [--loops all|outer|inner]
 # 例:
 build\apps\contour_viewer\Debug\contour_viewer.exe D:\model\12\柱体.step
 build\apps\contour_viewer\Debug\contour_viewer.exe D:\model\12\柱体.step 1 0 0   # 侧视
+build\apps\contour_viewer\Debug\contour_viewer.exe D:\model\12\齿轮.stp --loops outer  # 只看外回路
 ```
 
 - 可选 `dx dy dz`:初始投影方向(默认 `0 0 1` 顶视)。
 - `--frames N`:渲染 N 帧后退出(自动化验证用,不阻塞)。
-- `--cycle`:运行中自动切几次方向,验证运行时重算路径。
+- `--cycle`:运行中自动切几次方向与回路模式,验证运行时重算/重建路径。
+- `--loops all|outer|inner`:初始回路显示模式(默认 `all`),对应 Fusion 360 轮廓对话框的「回路」选项。
 
 键位:
 
@@ -66,8 +68,9 @@ build\apps\contour_viewer\Debug\contour_viewer.exe D:\model\12\柱体.step 1 0 0
 |---|---|
 | `1` `2` `3` `4` `5` `6` | 顶 / 底 / 前 / 后 / 左 / 右 视向(切向即重算轮廓) |
 | `0` | 等轴测方向 |
+| `7` `8` `9` | 回路显示:全部 / 仅外回路 / 仅内回路(孔)(纯显示筛选,不重算) |
 | `F` | 显隐实体 |
-| `C` | 显隐外轮廓 |
+| `C` | 显隐轮廓 |
 | `M` | 切换「投影平面」/「原位」显示模式 |
 | 鼠标 | trackball 轨道视角 |
 | `Esc` | 退出 |
