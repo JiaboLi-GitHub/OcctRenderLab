@@ -9,8 +9,8 @@
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
 
-#include "ModelLoad.h"
-#include "OuterContour.h"
+#include <occtcontour/ModelLoad.h>
+#include <occtcontour/OuterContour.h>
 
 static void writePoly(std::ofstream& svg, const ocrl::Polyline& p,
                       double minY, double maxY, const char* stroke,

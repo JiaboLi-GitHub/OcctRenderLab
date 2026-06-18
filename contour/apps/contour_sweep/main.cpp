@@ -6,8 +6,8 @@
 
 #include <Standard_Failure.hxx>
 
-#include "ModelLoad.h"
-#include "OuterContour.h"
+#include <occtcontour/ModelLoad.h>
+#include <occtcontour/OuterContour.h>
 
 namespace fs = std::filesystem;
 

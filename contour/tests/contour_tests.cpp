@@ -9,8 +9,8 @@
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
 
-#include "ModelLoad.h"
-#include "OuterContour.h"
+#include <occtcontour/ModelLoad.h>
+#include <occtcontour/OuterContour.h>
 
 #ifndef TEST_DATA_DIR
 #define TEST_DATA_DIR "."

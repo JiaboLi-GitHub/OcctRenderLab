@@ -1,4 +1,4 @@
-#include "OuterContour.h"
+#include <occtcontour/OuterContour.h>
 
 #include <HLRAlgo_Projector.hxx>
 #include <HLRBRep_Algo.hxx>
