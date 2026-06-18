@@ -5,6 +5,8 @@
 #include <HLRBRep_HLRToShape.hxx>
 
 #include <BRep_Builder.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <GCPnts_TangentialDeflection.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_XYZ.hxx>
 
@@ -33,6 +35,18 @@ TopoDS_Compound extractVisibleOutlineEdges(const TopoDS_Shape& shape,
     if (!outline.IsNull()) builder.Add(out, outline);
     if (!sharp.IsNull())   builder.Add(out, sharp);
     return out;
+}
+
+Polyline discretizeEdge(const TopoDS_Edge& edge, double angDefl, double curvDefl)
+{
+    Polyline pts;
+    BRepAdaptor_Curve curve(edge);
+    GCPnts_TangentialDeflection disc(curve, angDefl, curvDefl);
+    const int n = disc.NbPoints();
+    pts.reserve(static_cast<std::size_t>(n > 0 ? n : 0));
+    for (int i = 1; i <= n; ++i)     // 1-based
+        pts.push_back(disc.Value(i));
+    return pts;
 }
 
 } // namespace detail

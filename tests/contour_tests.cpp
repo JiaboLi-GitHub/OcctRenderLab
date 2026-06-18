@@ -40,9 +40,23 @@ static void test_hlr_extract() {
     CHECK(countEdges(edges) > 0, "HLR top-view has visible edges");
 }
 
+static void test_discretize() {
+    TopoDS_Compound c = ocrl::loadCompound(data("sphere.step"));
+    gp_Ax2 vs;
+    TopoDS_Compound edges = ocrl::detail::extractVisibleOutlineEdges(c, gp_Dir(0, 0, 1), vs);
+    std::size_t pts = 0;
+    for (TopExp_Explorer e(edges, TopAbs_EDGE); e.More(); e.Next()) {
+        auto poly = ocrl::detail::discretizeEdge(TopoDS::Edge(e.Current()), 0.05, 0.05);
+        CHECK(poly.size() >= 2, "each edge discretized to >= 2 points");
+        pts += poly.size();
+    }
+    CHECK(pts > 8, "sphere silhouette circle gets enough sampled points");
+}
+
 int main() {
     test_model_load();
     test_hlr_extract();
+    test_discretize();
     std::printf(g_fails ? "\n%d FAILURE(S)\n" : "\nALL PASS\n", g_fails);
     return g_fails ? 1 : 0;
 }
