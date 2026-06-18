@@ -33,7 +33,7 @@ add_subdirectory("D:/vsgOcct/src" "${CMAKE_BINARY_DIR}/_vsgocct")
 
 # OCCT HLR/外轮廓所需工具包(TKHLR 传递大多数基础库,TKShHealing/TKMesh 需显式)
 set(OCRL_OCCT_LIBS
-    TKHLR TKShHealing TKMesh
+    TKHLR TKShHealing TKMesh TKBO
     TKTopAlgo TKBRep TKGeomAlgo TKGeomBase TKG3d TKG2d TKMath TKernel)
 
 # 把运行期 DLL(OCCT + vsg)拷到目标 exe 旁
@@ -63,3 +63,4 @@ enable_testing()
 add_subdirectory(tests)
 add_subdirectory(apps/contour_viewer)
 add_subdirectory(apps/contour_sweep)
+add_subdirectory(apps/contour_svg)

@@ -28,6 +28,17 @@ static std::size_t countEdges(const TopoDS_Shape& s) {
     return n;
 }
 
+// 单条折线自身的 2D 包围盒(用于断言外环本身是否横跨整件)
+static void polyBBox(const ocrl::Polyline& p, double& w, double& h) {
+    if (p.empty()) { w = h = 0; return; }
+    double x0 = p[0].X(), x1 = x0, y0 = p[0].Y(), y1 = y0;
+    for (const auto& pt : p) {
+        x0 = std::min(x0, pt.X()); x1 = std::max(x1, pt.X());
+        y0 = std::min(y0, pt.Y()); y1 = std::max(y1, pt.Y());
+    }
+    w = x1 - x0; h = y1 - y0;
+}
+
 static void test_model_load() {
     TopoDS_Compound c = ocrl::loadCompound(data("cylinder.step"));
     CHECK(!c.IsNull(), "loadCompound(cylinder) returns non-null compound");
@@ -134,7 +145,26 @@ static void diag_bbox(const char* name) {
     std::printf("       [bbox] %-14s X %.2f Y %.2f Z %.2f\n", name, x1-x0, y1-y0, z1-z0);
 }
 
+// 回归测试:复杂件(骷髅匕首)的外环本身必须横跨整件(198mm),而不是片段。
+// 旧的"HLR边拼环+取最大面积"会把刀身误判成内孔,外环只剩手柄段(~164mm)。
+static void test_knife_outer_complete() {
+    using namespace ocrl;
+    ContourOptions o; o.direction = gp_Dir(0, 0, 1);  // 顶视
+    ContourResult r = computeOuterContour(loadCompound(data("knife.step")), o);
+    CHECK(r.ok, "knife ok");
+    double ow, oh; polyBBox(r.outerPolyline, ow, oh);
+    std::printf("       (knife OUTER-loop bbox = %.2f x %.2f, full part = 198.05 x 37.24)\n", ow, oh);
+    CHECK(ow > 190.0, "knife outer loop spans full length ~198 (not a 164mm fragment)");
+    CHECK(oh > 33.0,  "knife outer loop spans full width ~37");
+    // 外环应是一条完整闭环:首尾点几乎重合
+    if (r.outerPolyline.size() >= 2) {
+        const double gap = r.outerPolyline.front().Distance(r.outerPolyline.back());
+        CHECK(gap < 1.0, "knife outer loop is closed (first~=last point)");
+    }
+}
+
 int main() {
+    setvbuf(stdout, nullptr, _IONBF, 0);  // 不缓冲,崩溃时也能看到最后一行
     std::printf("=== 3D bounding boxes ===\n");
     diag_bbox("cylinder.step");
     diag_bbox("sphere.step");
@@ -146,6 +176,7 @@ int main() {
     test_discretize();
     test_assemble_cylinder_top();
     test_full_pipeline();
+    test_knife_outer_complete();
     std::printf(g_fails ? "\n%d FAILURE(S)\n" : "\nALL PASS\n", g_fails);
     return g_fails ? 1 : 0;
 }

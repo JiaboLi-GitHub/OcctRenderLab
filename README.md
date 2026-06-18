@@ -13,23 +13,28 @@
 - **`D:\vsgOcct`** —— VSG+OCCT 桥接库。本项目通过 `add_subdirectory(D:/vsgOcct/src)` 复用其
   `cad::readStep`(STEP 读取)与 `scene::buildAssemblyScene`(实体场景),**不改动其源码**。
 
-## 方法(算法主线:路线 A,精确 HLR)
+## 方法(精确 B-rep 投影阴影区域并集)
 
 ```
 STEP ─readStep(复用)─► 装配树 ─拍平─► TopoDS_Compound
                                           ├─ buildAssemblyScene(复用) ─► VSG 实体
                                           └─ computeOuterContour(本项目)
-                                               HLRBRep_Algo 正交投影
-                                               → OutLineVCompound(剪影边) + VCompound(锐边)
-                                               → ConnectEdgesToWires 拼环
-                                               → 选「能建平面 + 面积最大」的闭环为外轮廓
-                                               → BRepGProp 算面积、离散为折线
+                                               HLRBRep_Algo 正交投影 → 可见+隐藏的 剪影+锐边(2D@Z=0)
+                                               → BRepLib::BuildCurves3d 补 3D 曲线
+                                               → 在视平面造 base 矩形面,用这些边 Splitter 切成子面
+                                               → 逐子面取内部点、沿视向投射线 IntCurvesFace 判是否击中实体
+                                                 (穿过通孔的线不命中 ⇒ 自动成为内孔)
+                                               → Fuse 所有「阴影」子面 + UnifySameDomain
+                                               → BRepTools::OuterWire 取外环、其余为内孔
+                                               → BRepTools_WireExplorer 按连通顺序离散
                                           ─► VSG 线节点(反向 Z 管线)
 ```
 
-关键点:剪影边(`OutLineVCompound`)捕捉曲面与视向相切处的轮廓(如圆柱侧母线),锐边
-(`VCompound`)补齐棱柱/平面的边界 —— 两者合并才得到完整外形。闭合判据用
-`BRepBuilderAPI_MakeFace.IsDone()`(平面只能由几何闭合的 wire 构成),而非拓扑 `Closed()` 标志位。
+为什么不用「HLR 边直接拼环」:复杂/带圆角件投影出的边不是一条连续闭链(圆角产生
+剪影边+锐边双线、护手处分叉),`ConnectEdgesToWires`+取最大面积会把外轮廓**拆裂**、
+把刀身这类大段**误判成内孔**。改用「把视平面切成子面 → 射线判定每片是否在实体阴影内 →
+并集」是拓扑稳健的精确解:球/圆角/凹形/通孔都正确,且天然只产生**一条完整外环**。
+回归测试 `test_knife_outer_complete` 专门守护这一点(外环须横跨整把刀 198mm,而非片段)。
 
 ## 构建
 
@@ -105,13 +110,13 @@ ctest --test-dir D:/OcctRenderLab/build -C Debug --output-on-failure
 
 ## 已知限制 / 后续
 
-- 只实现**路线 A(精确 HLR)**;网格 HLR(`HLRBRep_PolyAlgo`)与网格投影 2D 布尔并集列为后续。
 - 「原位 / 投影平面」两种显示当前用 `depth` 偏移近似;严格 3D 原位剪影可用
   `OutLineVCompound3d()` / `CompoundOfEdges(type,true,/*In3d=*/true)`。
-- 多个分离投影「岛」当前取全局面积最大的闭环为外轮廓;完整的「每岛各取外环 + 嵌套孔分类」待完善。
-- HLR 是精确算法,超大装配可能较慢(本项目最慢样例齿轮 757ms)。
+- 多体(多个分离实体)目前只返回**面积最大那块**的外环;完整的「每块各取外环」待扩展。
+- 区域并集算法精确但较重:子面越多越慢,复杂件(如齿轮)Debug 下约 7s(精度优先;
+  仅构建了 Debug 配置,Release 会快很多)。
 - 交互窗口需要桌面会话;从非交互 shell 启动可能立即退出(用 `--frames` 做无人值守验证)。
-- 轮廓导出 DXF/SVG/STEP 尚未实现。
+- 已可导出 SVG(`contour_svg`);DXF/STEP 导出尚未实现。
 
 ## 目录
 
