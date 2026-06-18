@@ -1,0 +1,3 @@
+add_executable(contour_sweep main.cpp)
+target_link_libraries(contour_sweep PRIVATE ocrl_core)
+ocrl_copy_runtime_dlls(contour_sweep)
