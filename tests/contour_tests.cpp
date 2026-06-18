@@ -8,6 +8,7 @@
 #include <TopoDS.hxx>
 
 #include "ModelLoad.h"
+#include "OuterContour.h"
 
 #ifndef TEST_DATA_DIR
 #define TEST_DATA_DIR "."
@@ -31,8 +32,17 @@ static void test_model_load() {
     CHECK(countEdges(c) > 0, "cylinder compound has edges");
 }
 
+static void test_hlr_extract() {
+    TopoDS_Compound c = ocrl::loadCompound(data("cylinder.step"));
+    gp_Ax2 vs;
+    TopoDS_Compound edges = ocrl::detail::extractVisibleOutlineEdges(c, gp_Dir(0, 0, 1), vs);
+    CHECK(!edges.IsNull(), "HLR top-view extract returns non-null");
+    CHECK(countEdges(edges) > 0, "HLR top-view has visible edges");
+}
+
 int main() {
     test_model_load();
+    test_hlr_extract();
     std::printf(g_fails ? "\n%d FAILURE(S)\n" : "\nALL PASS\n", g_fails);
     return g_fails ? 1 : 0;
 }

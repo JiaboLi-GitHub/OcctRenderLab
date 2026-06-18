@@ -46,9 +46,10 @@ function(ocrl_copy_runtime_dlls target_name)
     endif()
 endfunction()
 
-# 核心库:ModelLoad(OuterContour 在 Task 3 加入源文件)
+# 核心库:ModelLoad + OuterContour
 add_library(ocrl_core STATIC
-    src/ModelLoad.cpp)
+    src/ModelLoad.cpp
+    src/OuterContour.cpp)
 target_include_directories(ocrl_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${OpenCASCADE_INCLUDE_DIR}")
