@@ -9,9 +9,9 @@
 #include <vsgocct/cad/StepReader.h>
 #include <vsgocct/scene/SceneBuilder.h>
 
-#include "ModelLoad.h"
-#include "OuterContour.h"
-#include "OutlineRender.h"
+#include <occtcontour/ModelLoad.h>
+#include <occtcontour/OuterContour.h>
+#include <ocrlrender/OutlineRender.h>
 
 namespace {
 

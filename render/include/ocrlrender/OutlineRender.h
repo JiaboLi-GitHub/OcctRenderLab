@@ -2,7 +2,7 @@
 #include <vector>
 #include <vsg/all.h>
 #include <gp_Pnt.hxx>
-#include "OuterContour.h"
+#include <occtcontour/OuterContour.h>
 
 namespace ocrl {
 // 用一组折线(每条按顺序点)构建 LINE_LIST 轮廓节点。color 为线色。

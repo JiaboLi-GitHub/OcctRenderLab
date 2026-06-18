@@ -1,5 +1,5 @@
 #include <cstdio>
-#include "OutlineRender.h"
+#include <ocrlrender/OutlineRender.h>
 
 int main() {
     // 一条折线 3 个点 => 2 段 => 4 个顶点
