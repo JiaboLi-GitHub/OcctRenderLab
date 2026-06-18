@@ -9,6 +9,8 @@ endif()
 # 算法(纯 OCCT)总是构建;渲染(vsg/vsgocct)可关
 option(OCRL_BUILD_RENDER "Build the VSG render project (needs vsg/vsgocct)" ON)
 
+enable_testing()   # 让 ctest 在根 build 目录聚合 contour/ 里注册的测试
+
 add_subdirectory(contour)
 if(OCRL_BUILD_RENDER)
     add_subdirectory(render)

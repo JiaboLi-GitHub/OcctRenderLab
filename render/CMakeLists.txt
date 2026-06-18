@@ -18,6 +18,14 @@ if(NOT TARGET occtcontour::occtcontour)
     find_package(occtcontour REQUIRED)
 endif()
 
+# OCCT include 目录:vsgocct 的 CMake 用 ${OpenCASCADE_INCLUDE_DIR} 找 OCCT 头,
+# 该变量是目录作用域,contour/ 里设的在这里看不到,必须本作用域再设一次。
+set(OCCT_BUILD_DIR "D:/OCCT/build" CACHE PATH "OCCT build tree")
+if(NOT TARGET TKHLR)
+    include("${OCCT_BUILD_DIR}/OpenCASCADETargets.cmake")
+endif()
+set(OpenCASCADE_INCLUDE_DIR "${OCCT_BUILD_DIR}/inc")
+
 # vsg + 复用 vsgocct
 find_package(vsg 1.1.2 REQUIRED HINTS "C:/Program Files (x86)/vsg/lib/cmake/vsg")
 if(NOT TARGET vsgocct::vsgocct)
