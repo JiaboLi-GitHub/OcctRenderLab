@@ -6,6 +6,8 @@
 #include <TopAbs_ShapeEnum.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
 
 #include "ModelLoad.h"
 #include "OuterContour.h"
@@ -66,11 +68,84 @@ static void test_assemble_cylinder_top() {
     }
 }
 
+static void test_full_pipeline() {
+    using namespace ocrl;
+
+    // 圆柱顶视 -> 圆:loops=1, area/bbox≈π/4, aspect≈1, 直边=0
+    {
+        ContourOptions o; o.direction = gp_Dir(0, 0, 1);
+        ContourResult r = computeOuterContour(loadCompound(data("cylinder.step")), o);
+        CHECK(r.ok, "cylinder top ok");
+        CHECK(r.loopCount == 1, "cylinder top single loop");
+        CHECK(std::fabs(r.area / r.bboxArea() - M_PI / 4.0) < 0.02, "cylinder top area/bbox ~= pi/4");
+        CHECK(std::fabs(r.aspect() - 1.0) < 0.02, "cylinder top aspect ~= 1");
+        CHECK(r.straightEdgeCount == 0, "cylinder top no straight edges (pure circle)");
+    }
+    // 圆柱侧视 -> 矩形 4x10:area/bbox≈1, aspect≈2.5
+    {
+        ContourOptions o; o.direction = gp_Dir(1, 0, 0);
+        ContourResult r = computeOuterContour(loadCompound(data("cylinder.step")), o);
+        CHECK(r.ok, "cylinder side ok");
+        std::printf("       (cylinder side area/bbox=%.4f aspect=%.4f)\n",
+                    r.bboxArea() > 0 ? r.area / r.bboxArea() : 0.0, r.aspect());
+        CHECK(std::fabs(r.area / r.bboxArea() - 1.0) < 0.05, "cylinder side area/bbox ~= 1 (rect)");
+        CHECK(std::fabs(r.aspect() - 2.5) < 0.1, "cylinder side aspect ~= 2.5");
+    }
+    // 球体任意视 -> 圆 R=5:area/bbox≈π/4, aspect≈1, 直边=0
+    {
+        ContourOptions o; o.direction = gp_Dir(0.3, 0.4, 0.866);
+        ContourResult r = computeOuterContour(loadCompound(data("sphere.step")), o);
+        CHECK(r.ok, "sphere ok");
+        CHECK(r.loopCount == 1, "sphere single loop");
+        CHECK(std::fabs(r.area / r.bboxArea() - M_PI / 4.0) < 0.02, "sphere area/bbox ~= pi/4");
+        CHECK(r.straightEdgeCount == 0, "sphere no straight edges");
+    }
+    // 严谨不变量:外轮廓的 2D 外接框 必须 = 实体在投影平面的 3D 外接框范围。
+    // 薄板顶视(沿 Z):真实 3D bbox = 100 × 99.51 × 2.5 -> 投影 ≈ 100×99.5(aspect≈1)
+    {
+        ContourOptions o; o.direction = gp_Dir(0, 0, 1);
+        ContourResult r = computeOuterContour(loadCompound(data("plate.step")), o);
+        CHECK(r.ok, "plate ok");
+        const double mx = std::max(r.bboxWidth(), r.bboxHeight());
+        std::printf("       (plate loops=%zu maxdim=%.2f aspect=%.4f area=%.1f)\n",
+                    r.loopCount, mx, r.aspect(), r.area);
+        CHECK(std::fabs(mx - 100.0) < 3.0, "plate contour max dim ~= 100 (matches 3D bbox)");
+        CHECK(std::fabs(r.aspect() - 1.005) < 0.1, "plate contour aspect ~= 1 (square plate)");
+        CHECK(r.area > 5000.0, "plate outer area substantial (>5000), not a tiny feature");
+    }
+    // 长条顶视(沿 Z):真实 3D bbox = 26 × 113 × 3 -> 投影 ≈ 26×113(aspect≈4.35)
+    {
+        ContourOptions o; o.direction = gp_Dir(0, 0, 1);
+        ContourResult r = computeOuterContour(loadCompound(data("bar.step")), o);
+        CHECK(r.ok, "bar ok");
+        const double mx = std::max(r.bboxWidth(), r.bboxHeight());
+        std::printf("       (bar loops=%zu maxdim=%.2f aspect=%.4f area=%.1f)\n",
+                    r.loopCount, mx, r.aspect(), r.area);
+        CHECK(std::fabs(mx - 113.0) < 4.0, "bar contour max dim ~= 113 (matches 3D bbox)");
+        CHECK(std::fabs(r.aspect() - 4.35) < 0.6, "bar contour aspect ~= 4.35");
+        CHECK(r.loopCount >= 1, "bar at least one loop");
+    }
+}
+
+static void diag_bbox(const char* name) {
+    TopoDS_Compound c = ocrl::loadCompound(data(name));
+    Bnd_Box b; BRepBndLib::Add(c, b, Standard_False);
+    double x0,y0,z0,x1,y1,z1; b.Get(x0,y0,z0,x1,y1,z1);
+    std::printf("       [bbox] %-14s X %.2f Y %.2f Z %.2f\n", name, x1-x0, y1-y0, z1-z0);
+}
+
 int main() {
+    std::printf("=== 3D bounding boxes ===\n");
+    diag_bbox("cylinder.step");
+    diag_bbox("sphere.step");
+    diag_bbox("plate.step");
+    diag_bbox("bar.step");
+    std::printf("=========================\n");
     test_model_load();
     test_hlr_extract();
     test_discretize();
     test_assemble_cylinder_top();
+    test_full_pipeline();
     std::printf(g_fails ? "\n%d FAILURE(S)\n" : "\nALL PASS\n", g_fails);
     return g_fails ? 1 : 0;
 }

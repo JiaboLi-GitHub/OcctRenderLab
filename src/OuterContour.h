@@ -15,7 +15,7 @@ namespace ocrl {
 
 struct ContourOptions {
     gp_Dir direction{0.0, 0.0, 1.0};   // 视线/投影方向(沿此方向看,正交)
-    double connectTolerance = 1e-4;    // 拼环容差
+    double connectTolerance = 1e-3;    // 拼环容差(mm 级机加工件需 >0.1µm)
     double angularDeflection = 0.05;   // 边离散化角偏差(rad)
     double curvatureDeflection = 0.05; // 边离散化曲率偏差
 };
