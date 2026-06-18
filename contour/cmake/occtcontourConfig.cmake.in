@@ -1,0 +1,7 @@
+@PACKAGE_INIT@
+# occtcontour 依赖 OCCT(本机构建树 targets)。消费方无需自己 find OCCT。
+if(NOT TARGET TKHLR)
+    include("D:/OCCT/build/OpenCASCADETargets.cmake")
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/occtcontourTargets.cmake")
+check_required_components(occtcontour)

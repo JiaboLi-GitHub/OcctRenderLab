@@ -1,34 +1,34 @@
-#include "ModelLoad.h"
+#include <occtcontour/ModelLoad.h>
 
-#include <vsgocct/cad/StepReader.h>
-
+#include <STEPControl_Reader.hxx>
+#include <IFSelect_ReturnStatus.hxx>
 #include <BRep_Builder.hxx>
-#include <TopLoc_Location.hxx>
 #include <TopoDS_Shape.hxx>
 
-namespace ocrl {
-namespace {
-void addNode(const vsgocct::cad::ShapeNode& node,
-             const TopLoc_Location& parentLoc,
-             BRep_Builder& builder,
-             TopoDS_Compound& out)
-{
-    const TopLoc_Location loc = parentLoc * node.location;
-    if (node.type == vsgocct::cad::ShapeNodeType::Part && !node.shape.IsNull())
-        builder.Add(out, node.shape.Moved(loc));
-    for (const auto& child : node.children)
-        addNode(child, loc, builder, out);
-}
-} // namespace
+#include <fstream>
+#include <stdexcept>
+#include <string>
 
+namespace ocrl {
 TopoDS_Compound loadCompound(const std::filesystem::path& stepFile)
 {
-    const vsgocct::cad::AssemblyData assembly = vsgocct::cad::readStep(stepFile);
+    std::ifstream input(stepFile, std::ios::binary);  // ifstream 兼容中文/Unicode 路径
+    if (!input)
+        throw std::runtime_error("cannot open STEP: " + stepFile.u8string());
+
+    STEPControl_Reader reader;
+    const std::string name = stepFile.filename().u8string();  // 绑定具名变量,避免 c_str() 悬垂
+    if (reader.ReadStream(name.c_str(), input) != IFSelect_RetDone)
+        throw std::runtime_error("OCCT failed to read STEP: " + stepFile.u8string());
+    reader.TransferRoots();
+
     TopoDS_Compound out;
     BRep_Builder builder;
     builder.MakeCompound(out);
-    for (const auto& root : assembly.roots)
-        addNode(root, TopLoc_Location(), builder, out);
+    for (int i = 1; i <= reader.NbShapes(); ++i) {
+        const TopoDS_Shape s = reader.Shape(i);
+        if (!s.IsNull()) builder.Add(out, s);
+    }
     return out;
 }
 } // namespace ocrl
