@@ -1,0 +1,8 @@
+# STEP/IGES/BREP 模型按二进制存储,避免行尾转换改动文件
+*.step binary
+*.stp  binary
+*.STEP binary
+*.STP  binary
+*.iges binary
+*.igs  binary
+*.brep binary
