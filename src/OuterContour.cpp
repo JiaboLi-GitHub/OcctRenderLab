@@ -6,7 +6,15 @@
 
 #include <BRep_Builder.hxx>
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepGProp.hxx>
 #include <GCPnts_TangentialDeflection.hxx>
+#include <GProp_GProps.hxx>
+#include <NCollection_HSequence.hxx>
+#include <ShapeAnalysis_FreeBounds.hxx>
+#include <ShapeFix_Wire.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_XYZ.hxx>
 
@@ -47,6 +55,61 @@ Polyline discretizeEdge(const TopoDS_Edge& edge, double angDefl, double curvDefl
     for (int i = 1; i <= n; ++i)     // 1-based
         pts.push_back(disc.Value(i));
     return pts;
+}
+
+AssembledLoops assembleClosedLoops(const TopoDS_Compound& edgesCompound, double connectTol)
+{
+    AssembledLoops result;
+
+    // 1) 收集所有边到 HSequence
+    opencascade::handle<NCollection_HSequence<TopoDS_Shape>> edges =
+        new NCollection_HSequence<TopoDS_Shape>();
+    for (TopExp_Explorer e(edgesCompound, TopAbs_EDGE); e.More(); e.Next())
+        edges->Append(e.Current());
+    if (edges->IsEmpty())
+        return result;
+
+    // 2) 连成 wires(shared=false => 按端点距离 < connectTol 连接)
+    opencascade::handle<NCollection_HSequence<TopoDS_Shape>> wires =
+        new NCollection_HSequence<TopoDS_Shape>();
+    ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edges, connectTol, Standard_False, wires);
+    if (wires.IsNull() || wires->IsEmpty())
+        return result;
+
+    // 3) 逐环:修小缝隙 -> 闭合判定 -> 建面算面积
+    double maxArea = -1.0;
+    for (int i = 1; i <= wires->Length(); ++i)
+    {
+        TopoDS_Wire wire = TopoDS::Wire(wires->Value(i));
+
+        ShapeFix_Wire fix;
+        fix.Load(wire);
+        fix.SetPrecision(connectTol);
+        fix.FixConnected();
+        fix.FixClosed();
+        fix.Perform();
+        wire = fix.Wire();
+
+        if (!wire.Closed())
+            continue;
+
+        BRepBuilderAPI_MakeFace mkFace(wire, Standard_True); // OnlyPlane
+        if (!mkFace.IsDone())
+            continue;
+
+        GProp_GProps props;
+        BRepGProp::SurfaceProperties(mkFace.Face(), props);
+        const double area = props.Mass();
+
+        result.closedWires.push_back(wire);
+        result.areas.push_back(area);
+        if (area > maxArea)
+        {
+            maxArea = area;
+            result.outerIndex = static_cast<int>(result.closedWires.size()) - 1;
+        }
+    }
+    return result;
 }
 
 } // namespace detail

@@ -53,10 +53,24 @@ static void test_discretize() {
     CHECK(pts > 8, "sphere silhouette circle gets enough sampled points");
 }
 
+static void test_assemble_cylinder_top() {
+    TopoDS_Compound c = ocrl::loadCompound(data("cylinder.step"));
+    gp_Ax2 vs;
+    TopoDS_Compound edges = ocrl::detail::extractVisibleOutlineEdges(c, gp_Dir(0, 0, 1), vs);
+    auto loops = ocrl::detail::assembleClosedLoops(edges, 1e-4);
+    CHECK(loops.outerIndex >= 0, "cylinder top: outer closed loop found");
+    if (loops.outerIndex >= 0) {
+        const double area = loops.areas[loops.outerIndex];
+        std::printf("       (cylinder top outer area = %.4f, expect 4pi = %.4f)\n", area, M_PI * 4.0);
+        CHECK(std::fabs(area - M_PI * 4.0) < 0.2, "cylinder top outer area ~= 4pi");
+    }
+}
+
 int main() {
     test_model_load();
     test_hlr_extract();
     test_discretize();
+    test_assemble_cylinder_top();
     std::printf(g_fails ? "\n%d FAILURE(S)\n" : "\nALL PASS\n", g_fails);
     return g_fails ? 1 : 0;
 }
