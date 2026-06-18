@@ -46,7 +46,17 @@ function(ocrl_copy_runtime_dlls target_name)
     endif()
 endfunction()
 
-# 临时冒烟程序(Task 1 验证依赖链;Task 2 起被 ocrl_core + tests 取代)
-add_executable(ocrl_smoke src/smoke_main.cpp)
-target_link_libraries(ocrl_smoke PRIVATE vsgocct::vsgocct ${OCRL_OCCT_LIBS})
-ocrl_copy_runtime_dlls(ocrl_smoke)
+# 核心库:ModelLoad(OuterContour 在 Task 3 加入源文件)
+add_library(ocrl_core STATIC
+    src/ModelLoad.cpp)
+target_include_directories(ocrl_core PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${OpenCASCADE_INCLUDE_DIR}")
+target_link_libraries(ocrl_core PUBLIC
+    vsgocct::vsgocct          # 传播 vsg::vsg + vsgocct include 根
+    ${OCRL_OCCT_LIBS})
+# UTF-8 源码/字符串(中文消息、避免 MSVC C4819);传播到 tests/apps
+target_compile_options(ocrl_core PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+
+enable_testing()
+add_subdirectory(tests)
